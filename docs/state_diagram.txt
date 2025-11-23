@@ -1,0 +1,149 @@
+# Elevator Controller Finite State Machine (FSM)
+
+## State Diagram Description
+
+### States:
+1. **IDLE** - Elevator is idle with door closed, waiting for requests
+2. **DOOR_OPEN** - Door is open for 2 seconds at requested floor
+3. **MOVING_UP** - Elevator is moving upward (takes 2 seconds per floor)
+4. **MOVING_DOWN** - Elevator is moving downward (takes 2 seconds per floor)
+
+### State Transitions:
+
+```
+                    ┌──────────────────────────────────┐
+                    │                                  │
+                    ▼                                  │
+              ┌──────────┐                             │
+    ┌────────►│   IDLE   │◄────────────────────┐      │
+    │         └──────────┘                      │      │
+    │              │                            │      │
+    │              │ has_request=1              │      │
+    │              │ next_floor > current       │      │
+    │              ▼                            │      │
+    │         ┌──────────────┐                  │      │
+    │         │  MOVING_UP   │                  │      │
+    │         └──────────────┘                  │      │
+    │              │                            │      │
+    │              │ timer_expired=1            │      │
+    │              │ (every 2 seconds)          │      │
+    │              │ current++                  │      │
+    │              │                            │      │
+    │              │ current == next_floor      │      │
+    │              ▼                            │      │
+    │         ┌──────────────┐                  │      │
+    │         │  DOOR_OPEN   │                  │      │
+    │         └──────────────┘                  │      │
+    │              │                            │      │
+    │              │ timer_expired=1            │      │
+    │              │ (after 2 seconds)          │      │
+    │              └────────────────────────────┘      │
+    │                                                   │
+    │         ┌──────────┐                             │
+    └─────────┤   IDLE   │                             │
+              └──────────┘                             │
+                   │                                   │
+                   │ has_request=1                     │
+                   │ next_floor < current              │
+                   ▼                                   │
+              ┌──────────────┐                         │
+              │ MOVING_DOWN  │                         │
+              └──────────────┘                         │
+                   │                                   │
+                   │ timer_expired=1                   │
+                   │ (every 2 seconds)                 │
+                   │ current--                         │
+                   │                                   │
+                   │ current == next_floor             │
+                   └───────────────────────────────────┘
+```
+
+## Detailed State Descriptions:
+
+### IDLE State
+- **Entry Condition**: System reset OR door closes after 2 seconds with no pending requests
+- **Behavior**: 
+  - Door is closed
+  - All movement indicators OFF
+  - Monitors for new floor requests
+- **Exit Conditions**:
+  - If request received and next_floor > current_floor → MOVING_UP
+  - If request received and next_floor < current_floor → MOVING_DOWN
+  - If request received and next_floor == current_floor → DOOR_OPEN
+
+### MOVING_UP State
+- **Entry Condition**: Request for higher floor received
+- **Behavior**:
+  - Door is closed (enforced)
+  - Moving_up indicator ON
+  - Timer enabled (2 seconds per floor)
+  - Increments floor counter every 2 seconds
+- **Exit Conditions**:
+  - When current_floor == next_floor → DOOR_OPEN
+  - Continues in MOVING_UP if more floors to travel
+
+### MOVING_DOWN State
+- **Entry Condition**: Request for lower floor received
+- **Behavior**:
+  - Door is closed (enforced)
+  - Moving_down indicator ON
+  - Timer enabled (2 seconds per floor)
+  - Decrements floor counter every 2 seconds
+- **Exit Conditions**:
+  - When current_floor == next_floor → DOOR_OPEN
+  - Continues in MOVING_DOWN if more floors to travel
+
+### DOOR_OPEN State
+- **Entry Condition**: Elevator reaches requested floor
+- **Behavior**:
+  - Door opens
+  - Timer enabled (2 seconds)
+  - All movement indicators OFF
+  - Current floor request is cleared
+- **Exit Conditions**:
+  - After 2 seconds → IDLE
+
+## Request Resolution Algorithm:
+
+The Request Resolver determines the next destination floor using the following priority:
+
+1. **While Moving UP**:
+   - Priority 1: Serve higher floors in ascending order
+   - Priority 2: If no higher requests, serve lower floors
+
+2. **While Moving DOWN**:
+   - Priority 1: Serve lower floors in descending order
+   - Priority 2: If no lower requests, serve higher floors
+
+3. **While IDLE**:
+   - Priority 1: Serve nearest floor above current
+   - Priority 2: If no higher requests, serve nearest floor below
+
+## Safety Constraints:
+
+1. **Door Safety**: Door NEVER opens while moving (enforced in FSM)
+2. **Direction Consistency**: Elevator doesn't change direction until all requests in current direction are served
+3. **Timer Accuracy**: Uses 1Hz clock enable from 50MHz system clock for precise timing
+4. **Request Synchronization**: Button presses are synchronized to avoid metastability
+
+## Reset Behavior:
+
+- Clears all pending floor requests
+- Does NOT change current floor
+- Transitions to IDLE state
+- Closes door if open
+
+## Input/Output Specifications:
+
+### Inputs:
+- **clk**: 50 MHz system clock
+- **reset**: Asynchronous reset (clears all requests)
+- **floor_request[3:0]**: 4-bit floor number from switches (0-9)
+- **request_btn**: Push button to register floor request
+
+### Outputs:
+- **current_floor[3:0]**: Current floor number (0-9)
+- **door_open**: Door status (1=open, 0=closed)
+- **moving_up**: Moving upward indicator
+- **moving_down**: Moving downward indicator
+- **requests_out[9:0]**: Debug output showing all pending requests
